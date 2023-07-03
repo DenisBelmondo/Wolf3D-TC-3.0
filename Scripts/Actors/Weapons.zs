@@ -35,7 +35,6 @@ class ClassicWeapon : Weapon
 		Mass 10000;
 		Obituary "";
 		Inventory.PickupMessage "";
-		Weapon.YAdjust 2.0;
 	}
 
 	States
@@ -162,9 +161,14 @@ class ClassicWeapon : Weapon
 				Vector2 size = TexMan.GetScaledSize(tex);
 				if (size.x == size.y && size.x <= 64.0)
 				{
-					double factor = 160.0 / size.x;
+					// [DenisBelmondo]:
+					// -(0.3 / 9.0) is a small adjustment factor to make sure
+					// there are no 1-2 screenspace pixel misalignments.
+
+					double factor = (160.0 / size.x) - (0.3 / 9.0);
 					WeaponScaleX = Default.WeaponScaleX * factor;
 					WeaponScaleY = Default.WeaponScaleY * factor;
+					YAdjust = 6.87;
 				}
 			}
 		}
