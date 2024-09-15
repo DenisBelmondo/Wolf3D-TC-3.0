@@ -30,7 +30,7 @@ gameinfo
 	drawreadthis = true
 	maparrow = "maparrows/knife.txt"
 
-	eventhandlers = "MapStatsHandler", "PersistentMapstatsHandler", "LifeHandler", "PersistentLifeHandler", "DeathCamHandler", "KeyHandler", "MenuHandler", "ConsoleHandler", "ReplacementHandler", "GameHandler"
+	EventHandlers = "MapStatsHandler", "PersistentMapstatsHandler", "LifeHandler", "PersistentLifeHandler", "DeathCamHandler", "KeyHandler", "MenuHandler", "ConsoleHandler", "ReplacementHandler", "PolyMoveHandler", "DoorHandler", "GameHandler", "MapHandler", "DataHandler"
 
 	StatusbarClass = "ClassicStatusBar"
 	AltHUDClass = "JaguarHUD"
@@ -89,6 +89,19 @@ defaultmap
 map TITLEMAP "Wolfenstein 3D"
 {
 	levelnum = 0
+}
+
+map Level "Wolfenstein 3D"
+{
+	levelnum = -1
+	next = Level
+	secretnext = Level
+}
+
+map "Wolf3D TC Test" "Demo Map"
+{
+	levelnum = 1000
+	music = GETTHEM
 }
 
 clearepisodes
@@ -1188,9 +1201,9 @@ DoomEdNums
 	23106=RadioactiveMist
 
 	20224=Blinky
-	20225=Inky
+	20225=Clyde
 	20226=Pinky
-	20227=Clyde
+	20227=Inky
 
 	// Compatibility
 	21002=Guard

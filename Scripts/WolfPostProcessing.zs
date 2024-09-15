@@ -23,6 +23,8 @@
 // Handle swapping out items if a custom SoD or Lost Episodes map is loaded with Wolf3D, or vice versa.
 // Can be toggled by setting 'g_sod' CVar and restarting map
 
+const MAXDOORS = 14;
+
 class WolfPostProcessor : LevelPostProcessor
 {
 	protected void Apply(Name checksum, String mapname)
@@ -92,16 +94,128 @@ class WolfPostProcessor : LevelPostProcessor
 			}
 		}
 
-		// Spawn door sound player
-		for (uint i = 0; i < count; i++)
+		// Move doors into place
+		MapHandler handler = MapHandler.Get();
+		if (handler && level.mapname ~== "Level")
 		{
-			uint e = GetThingEdNum(i);
-
-			// Polyobject Start Spot
-			if (e == 9301)
+			if (!handler.queuedmap) { handler.queuedmap = handler.parsedmaps.GetMapData("Wolf3D TC Test"); }
+			
+			if (handler.queuedmap)
 			{
-				Vector3 sPos = GetThingPos(i);
-				AddThing(22101, sPos, GetThingAngle(i));
+				// Make sure that lines that will be exposed to the player face the 
+				// inside of the map (so that all animated walls/switches work properly) 
+				for (int l = 0; l < level.lines.Size(); l++)
+				{
+					Line ln = level.lines[l];
+
+					int x1, x2, y1, y2;
+					x1 = x2 = int((ln.v1.p.x + ln.v2.p.x) / 2);
+					y1 = y2 = int((ln.v1.p.y + ln.v2.p.y) / 2);
+
+					if (ln.v1.p.y == ln.v2.p.y)
+					{
+						if (ln.v2.p.x > ln.v2.p.x) { y1 += 32; y2 -= 32; }
+						else if (ln.v2.p.x < ln.v2.p.x) { y1 -= 32; y2 += 32; }	
+					}
+					else if (ln.v1.p.x == ln.v2.p.x)
+					{
+						if (ln.v1.p.y > ln.v2.p.y) { x1 += 32; x2 -= 32; }
+						else if (ln.v1.p.y < ln.v2.p.y) { x1 -= 32; x2 +- 32; }
+					}
+
+					int t1 = handler.TileAt((x1, y1));
+					int t2 = handler.TileAt((x2, y2));
+
+					if (t1 < 0x6A && t1 < 0x6A) { continue; } // Void space; ignore
+					else if (t1 < 0x6A) // t2 is floor, t1 is a wall
+					{
+						if (y1 > y2 || x1 > x2) { continue; }
+						FlipLineCompletely(ln.Index());
+					}
+					else if (t2 < 0x6A) // t1 is floor, t2 is a wall
+					{
+						if (y1 < y2 || x1 < x2) { continue; }
+						FlipLineCompletely(ln.Index());
+					}
+				}
+
+				// Index and place polyobject doors
+
+				int startspots[3][256];
+				int doorcount[3];
+
+				// Find all of the start spots and store them in an array by type
+				for (uint i = 0; i < count; i++)
+				{
+					uint e = GetThingEdNum(i);
+
+					// Polyobject Start Spot
+					if (e == 9301)
+					{
+						int id = GetThingAngle(i);
+						int index = (id > 128 ? 2 : id > 64 ? 1 : 0);
+
+						startspots[index][id - index * 64] = i; // Insert in numerical order so number will match order of use
+					}
+				}
+
+				// Position door polyobjects in the map
+				for (int y = 0; y < 64; y++)
+				{
+					for (int x = 0; x < 64; x++)
+					{
+						int a = handler.queuedmap.ActorAt((x, y));
+						int t = handler.queuedmap.TileAt((x, y));
+
+						if ((t < 0x5A || t > 0x65) && a != 0x62) { continue; }
+
+						Vector2 pos = ParsedMap.GridToCoords((x, y));
+						int doortype = -1; // Invalid door type
+
+						if (t >= 0x5A && t <= 0x65 && !handler.queuedmap.CheckDoorTiles((x, y)))
+						{
+							doortype = !!(t % 2); // E/W or N/S
+						}
+
+						if (t > 0 && t < 0x6A && a == 0x62) // Pushwall
+						{
+							// Special handling for secret door placed on top of normal door
+							if (doortype > -1)
+							{
+								int spotindex = startspots[2][++doorcount[2]];
+								SetThingXY(spotindex, pos.x, pos.y);
+								AddThing(22101, (pos, 0), GetThingAngle(spotindex));
+							}
+							else
+							{
+								doortype = 2;
+							}
+						}
+
+						if (doortype < 0) { continue; }
+
+						int spotindex = startspots[doortype][++doorcount[doortype]];
+						SetThingXY(spotindex, pos.x, pos.y);
+
+						// Spawn door sound player for doors that were placed in the map
+						AddThing(22101, (pos, 0), GetThingAngle(spotindex));
+					}
+				}
+			}
+		}
+		else
+		{
+			// Spawn door sound player
+			for (uint i = 0; i < count; i++)
+			{
+				uint e = GetThingEdNum(i);
+
+				// Polyobject Start Spot
+				if (e == 9301)
+				{
+					Vector3 sPos = GetThingPos(i);
+					AddThing(22101, sPos, GetThingAngle(i));
+				}
 			}
 		}
 	}

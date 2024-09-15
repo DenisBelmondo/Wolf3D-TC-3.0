@@ -117,6 +117,9 @@ class ClassicWeapon : Weapon
 		}
 
 		A_FireBullets(spread, spread, 1, dmg, "WolfPuff", FBF_NORANDOM | FBF_USEAMMO);
+
+		// Activate all enemies on this floor code
+		if (!(player.cheats & CF_NOTARGET)) { MapHandler.ActivateFloorCode(pos.xy, self); }
 	}
 
 	override void DoEffect()

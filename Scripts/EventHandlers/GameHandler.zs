@@ -302,7 +302,7 @@ class GameHandler : StaticEventHandler
 
 	ui static void ChangeMusic(String musicname, int order = 0, bool looping = true, bool force = false)
 	{
-		if (musicname == "*") { musicname = level.music; }
+		if (musicname == "*") { musicname = MapHandler.GetMusic(); }
 		S_ChangeMusic(GameHandler.GetMusic(musicname), order, looping, force);
 	}
 
@@ -328,7 +328,7 @@ class GameHandler : StaticEventHandler
 
 			m.Close();
 
-			if (level.levelnum) { GameHandler.ChangeMusic(level.music); }
+			if (level.levelnum) { GameHandler.ChangeMusic("*"); }
 			else { GameHandler.ChangeMusic(""); }
 		}
 	}
@@ -343,20 +343,30 @@ class Game
 {
 	static int, int IsSoD()
 	{
-		if (level.levelnum < 100 || level.levelnum >= 999) { return g_sod, g_sod; }
-
-		int ret = max(0, g_sod);
-
-		if (level && level.levelnum > 700)
+		int ret;
+		if (level.mapname ~== "Level")
 		{
-			String ext = level.mapname.Left(3);
-			if (ext ~== "SOD") { ret = 1; }
-			else if (ext ~== "SD2") { ret = 2; }
-			else if (ext ~== "SD3") { ret = 3; }
+			MapHandler this = MapHandler.Get();
+			if (!this || !this.curmap) { ret = max(0, g_sod); }
+			else { ret = this.curmap.gametype < 0 ? g_sod : this.curmap.gametype; }
 		}
 		else
 		{
-			ret = 0;
+			if (level.levelnum < 100 || level.levelnum >= 999) { return g_sod, g_sod; }
+
+			ret = max(0, g_sod);
+
+			if (level && level.levelnum > 700)
+			{
+				String ext = level.mapname.Left(3);
+				if (ext ~== "SOD") { ret = 1; }
+				else if (ext ~== "SD2") { ret = 2; }
+				else if (ext ~== "SD3") { ret = 3; }
+			}
+			else
+			{
+				ret = 0;
+			}
 		}
 
 		if (g_sod != ret && gamestate == GS_LEVEL && level.time == 2) // Set the value if we are in a game and it hasn't been set already by the startup menu
@@ -414,6 +424,36 @@ class Game
 			{
 				mo.A_StartSound(soundName, CHAN_BODY);
 				break;
+			}
+		}
+	}
+}
+
+class DataHandler : StaticEventHandler
+{
+	ParsedValue textcolordata;
+
+	override void OnRegister()
+	{
+		// Parse defined text colors
+		textcolordata = FileReader.Parse("textcolors.txt", true);
+		for (int d = 0; d < textcolordata.children.Size(); d++)
+		{
+			Array<String> temp;
+			textcolordata.children[d].keyname.Split(temp, " ");
+			textcolordata.children[d].keyname = ZScriptTools.Trim(temp[0]); // Only store the first listed name
+
+			for (int c = 0; c < textcolordata.children[d].children.Size(); c++)
+			{
+				String colordata = textcolordata.children[d].children[c].keyname;
+
+				// Only store the 'Flat:' color for lookup - ignore text colors that don't have this defined
+				int start = colordata.IndexOf("Flat:");
+				if (start > -1)
+				{
+					int i = colordata.IndexOf("#", colordata.IndexOf("Flat:")) + 1;
+					if (i > -1) { textcolordata.children[d].value = colordata.mid(i, 6); }
+				}
 			}
 		}
 	}

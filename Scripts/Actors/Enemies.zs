@@ -29,6 +29,7 @@ class ClassicBase : Actor
 	State AttackState;
 	Vector2 lastpos;
 	Class<Inventory> dropweapon;
+	MapHandler handler;
 
 	int baseflags;
 
@@ -116,6 +117,8 @@ class ClassicBase : Actor
 			if (spr > -1) { sprite = spr; }
 		}
 		else { spr = -1; }
+
+		handler = MapHandler.Get();
 
 		Super.BeginPlay();
 	}
@@ -248,6 +251,18 @@ class ClassicBase : Actor
 		if (level.Vec2Diff(pos.xy, lastpos).length() < 32.0)
 		{
 			if (TryWalk()) { return; }
+			else if (BlockingLine && BlockingLine.special == 8)
+			{
+				if (bCanUseWalls && BlockingLine.activation & SPAC_MUse)
+				{
+					BlockingLine.Activate(self, 0, SPAC_Use);
+					
+					frame = 4;
+					tics = 25;
+
+					return;
+				}
+			}
 		}
 
 		if (bRun && dist < 4) { movedir = GetRunDir(); }
@@ -637,9 +652,12 @@ class ClassicBase : Actor
 
 	void ActivatePeers()
 	{
-		if (bActive || !tid) { return; }
+		if (bActive || !target) { return; }
 
-		int lookup = (tid > 500) ? tid - 500 : tid;
+		int lookup = MapHandler.TileAt(pos.xy);
+		if (lookup < 0x6B) { lookup = tid; }
+
+		if (lookup == 0) { return; }
 
 		let it = level.CreateActorIterator(lookup, "Actor");
 		Actor mo;
@@ -647,7 +665,7 @@ class ClassicBase : Actor
 		while (mo = Actor(it.Next()))
 		{
 			if (mo == self) { continue; }
-			if (!mo.bIsMonster || mo.bDormant || !mo.bShootable || mo.health <= 0) { continue; }
+			if (!mo.bIsMonster || mo.bDormant || !mo.bShootable || mo.health <= 0 || mo.bAmbush) { continue; }
 
 			let c = ClassicBase(mo);
 			if (c)
@@ -657,7 +675,8 @@ class ClassicBase : Actor
 			}
 
 			mo.target = target;
-			mo.SetState(SeeState);
+			mo.SetState(mo.SeeState);
+			mo.vel *= 0;
 		}
 
 		bActive = true;
@@ -694,6 +713,12 @@ class ClassicBase : Actor
 		movedir = int(angle / 45);
 		bDormant = true;
 		SetStateLabel("Spawn.Stand");
+	}
+
+	override int DamageMobj(Actor inflictor, Actor source, int damage, Name mod, int flags, double angle)
+	{
+		if (!target) { target = source; }
+		return Super.DamageMobj(inflictor, source, damage, mod, flags, angle);
 	}
 }
 
@@ -734,7 +759,93 @@ class ClassicNazi : ClassicBase
 			}
 			Loop;
 		Spawn.PatrolNoClip:
-			"####" A 0 A_JumpIf((level.levelnum < 100 || level.levelnum > 999) || angle % 45 != 0 || angle % 90 == 0, "TurnAround"); // Only do special "noclip" handling at precisely 45 degree diagonal angles and in Wolf levels
+			"####" # 0 {
+				if (level.time > 30 && angle % 90 != 45)
+				{
+					SetStateLabel("TurnAround");
+					return;
+				}
+				
+				if (handler && handler.curmap)
+				{
+					bool initial = (level.time < 30);
+					sector nextsector = Level.PointInSector((pos.xy + RotateVector((48, 0), angle)));
+					Vector2 newpos = ParsedMap.CoordsToGrid(nextsector.CenterSpot);
+
+					bool blocked = false;
+					int t = handler.TileAt(nextsector.CenterSpot);
+					int a = handler.ActorAt(nextsector.CenterSpot);
+
+					if (t > 0 && t < 0x5A)
+					{
+						// Special handling to recreate holo-wall engine bug
+						if (initial)
+						{
+							nextsector.MoveFloor(256, nextsector.floorplane.PointToDist(nextsector.CenterSpot, nextsector.CenterFloor() - 64), 0, -1, 0, true);
+							nextsector.SetTexture(Sector.floor, floorpic);
+
+							// Remove line blocking and set textures to re-create the original effect
+							for (int l = 0; l < nextsector.lines.Size(); l++)
+							{
+								let ln = nextsector.lines[l];
+
+								ln.flags |= Line.ML_TWOSIDED;
+								ln.flags &= ~(Line.ML_BLOCKING | Line.ML_BLOCKSIGHT | Line.ML_SOUNDBLOCK | Line.ML_DONTDRAW);
+								ln.activation = 0; // Allow walkthrough of elevators
+
+								Sector texsec = (ln.frontsector == nextsector) ? ln.backsector : ln.frontsector;
+								Vector2 texpos = (texsec ? texsec.CenterSpot : (-4096, 4096));
+								texpos = ParsedMap.CoordsToGrid(texpos);
+								TextureID tex = handler.curmap.GetTexture(texpos, ln);
+
+								for (int s = 0; s < 2; s++)
+								{
+									if (ln.sidedef[s] && ln.sidedef[s].sector == nextsector)
+									{
+										if (handler.curmap.TileAt(texpos) < 0x5A && handler.curmap.ActorAt(texpos) != 0x62)
+										{
+											ln.sidedef[s].SetTexture(side.mid, tex);
+											ln.sidedef[s].SetTexture(side.bottom, tex);
+										}
+										else
+										{
+											ln.sidedef[s].SetTexture(side.mid, TexMan.CheckForTexture("-", TexMan.Type_Any));
+										}
+									}
+								}
+							}
+						}
+						else
+						{
+							blocked = true;
+						}
+					}
+				
+					if (a)
+					{
+						BlockThingsIterator it = BlockThingsIterator.CreateFromPos(nextsector.CenterSpot.x, nextsector.CenterSpot.y, pos.z, 64, 32, false);
+
+						while (it.Next())
+						{
+							if (it.thing.bSolid)
+							{
+								if (it.thing == self || Level.Vec2Diff(nextsector.CenterSpot, it.thing.pos.xy).length() > 32) { continue; }
+
+								// Special handling to recreate non-solid thing engine bug
+								if (initial) { it.thing.bSolid = false; }
+								else { blocked = true; }
+							}
+						}
+					}
+
+					if (blocked) { SetStateLabel("TurnAround"); }
+					else
+					{
+						bNoClip = true;
+						SetStateLabel("Spawn.Patrol");
+					}
+				}
+			}
 			"####" A 6 A_Warp(AAPTR_DEFAULT, 45, 0, 0, 0, WARPF_STOP | WARPF_INTERPOLATE, "Spawn.Patrol");
 			"####" A 6 A_Warp(AAPTR_DEFAULT, 90, 0, 0, 0, WARPF_STOP | WARPF_INTERPOLATE, "Spawn.Patrol");
 			"####" A 0 A_Jump(256, "TurnAround");
@@ -748,16 +859,39 @@ class ClassicNazi : ClassicBase
 			"####" A 0 A_SetAngle(angle + 180);
 			"####" A 0 A_Jump(256, "Spawn.Patrol");
 		Spawn.Patrol:
-			"####" AAA 1 ThrustThing (int(angle * 256 / 360), 1, 0, 0);
-			"####" AAA 1 A_LookEx (0, 0, 0, 2048, 0, "See");
-			"####" BBBBBB 1 A_LookEx (0, 0, 0, 2048, 0, "See");
-			"####" CCC 1 ThrustThing (int(angle * 256 / 360), 1, 0, 0);
-			"####" CCC 1 A_LookEx (0, 0, 0, 2048, 0, "See");
-			"####" DDDDDD 1 A_LookEx (0, 0, 0, 2048, 0, "See");
-			"####" A 0 A_JumpIf((vel.x == 0) && (vel.y == 0), "Spawn.PatrolNoClip");
+			"####" A 1 ThrustThing (int(angle * 256 / 360), 1, 0, 0);
+			"####" AA 1 {
+				DoVelocityCheck();
+				ThrustThing (int(angle * 256 / 360), 1, 0, 0);
+			}
+			"####" AAA 1 {
+				DoVelocityCheck();
+				A_LookEx (0, 0, 0, 2048, 0, "See");
+			}
+			"####" BBBBBB 1 {
+				DoVelocityCheck();
+				A_LookEx (0, 0, 0, 2048, 0, "See");
+			}
+			"####" CCC 1 {
+				DoVelocityCheck();
+				ThrustThing (int(angle * 256 / 360), 1, 0, 0);
+			}
+			"####" CCC 1 {
+				DoVelocityCheck();
+				A_LookEx (0, 0, 0, 2048, 0, "See");
+			}
+			"####" DDDDDD 1 {
+				DoVelocityCheck();
+				A_LookEx (0, 0, 0, 2048, 0, "See");
+			}
+			"####" A 0 { bNoClip = false; }
 			Loop;
 		Chase:
-			"####" A 0 { if (health <= 0) { SetStateLabel("Dead"); } }  // Just in case...
+			"####" A 0
+			{
+				if (health <= 0) { SetStateLabel("Dead"); } // Just in case...
+				bNoClip = false;
+			}
 			"####" AAAAA 1 A_NaziChase();
 			"####" A 1;
 			"####" BBBB 1 A_NaziChase();
@@ -802,6 +936,31 @@ class ClassicNazi : ClassicBase
 
 		if (bPatrolling) { SetStateLabel("Spawn.Patrol"); }
 		else { SetStateLabel("Spawn.Stand"); }
+	}
+
+	override void Tick()
+	{
+		Super.Tick();
+
+		if (vel.xy.length() > 0 && BlockingLine && BlockingLine.special == 8)
+		{
+			if (bCanUseWalls && BlockingLine.activation & SPAC_MUse)
+			{
+				BlockingLine.Activate(self, 0, SPAC_Use);
+				
+				frame = 4;
+				tics = 25;
+				BlockingLine = null;
+			}
+		}
+	}
+
+	void DoVelocityCheck()
+	{
+		if (!vel.xy.length())
+		{
+			SetStateLabel("Spawn.PatrolNoClip");
+		}
 	}
 }
 
@@ -1646,8 +1805,6 @@ class PacManGhost : ClassicBase
 		+LOOKALLAROUND
 		+NOBLOOD
 		-COUNTKILL
-		-CANPUSHWALLS
-		-SOLID
 
 		Radius 32;
 		Speed 5;
@@ -1673,6 +1830,13 @@ class PacManGhost : ClassicBase
 			"####" A -1;
 			Loop;
 	}
+
+	override bool CanCollideWith(Actor other, bool passive)
+	{
+		if (other.bIsMonster) { return false; }
+		
+		return Super.CanCollideWith(other, passive);
+	}
 }
 
 class Blinky : PacManGhost
@@ -1685,7 +1849,7 @@ class Blinky : PacManGhost
 	States
 	{
 		Spawn:
-			GHO0 A 0;
+			GHO1 A 0;
 			Goto Super::Spawn;
 	}
 }
@@ -1700,7 +1864,7 @@ class Inky : PacManGhost
 	States
 	{
 		Spawn:
-			GHO1 A 0;
+			GHO0 A 0;
 			Goto Super::Spawn;
 	}
 }
