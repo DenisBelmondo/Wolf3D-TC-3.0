@@ -2672,7 +2672,7 @@ class OptionMenuItemVariableText : OptionMenuItem
 
 	override int Draw(OptionMenuDescriptor desc, int y, int indent, bool selected)
 	{
-		String txt = StringTable.Localize(String.Format("$%s%i", mLabel, CoG_WarpSkill));
+		String txt = StringTable.Localize(String.Format("$%s%i", mLabel, g_warpskill));
 		int w = Menu.OptionWidth(txt) * CleanXfac_1;
 		int x = (screen.GetWidth() - w) / 2;
 		drawText(x, y, mColor, txt);
@@ -2687,7 +2687,7 @@ class OptionMenuItemVariableText : OptionMenuItem
 
 class OptionMenuItemImageSlider : OptionMenuSliderBase
 {
-	CVar mCVar;
+	transient CVar mCVar;
 	String prefix;
 
 	OptionMenuItemImageSlider Init(String label, String texprefix, Name command, double min, double max, double step, CVar graycheck = NULL, int graycheckVal = 0)
